@@ -86,7 +86,7 @@
         resource_group: "{{ resource_group_name }}"
         name: "{{ (name_prefix + user_first)[:15] }}"
         vm_size: "{{ vm_sku_size }}"
-        admin_username: azureadmin
+        admin_username: "{{ admin_user_name }}"
         admin_password: "{{ user_password }}"
         image: "{{image_facts.images.0}}"
         network_interface_names: "{{ name_prefix }}{{ user_first }}nic"

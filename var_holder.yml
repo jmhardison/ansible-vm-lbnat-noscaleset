@@ -1,0 +1,24 @@
+---
+# variable file for use with vm creation
+# Remainder of secured variables will be in the secrets file.
+resource_group_name: examplergname
+name_prefix: examp
+region_location: eastus
+vm_sku_size: Standard_F4s_v2
+vm_base_image_name: example-image-20191009082707
+vm_base_image_resource_group: imagergname
+subscription_id: subguidhere
+address_prefixes: 10.10.99.0/24
+subnet_address_prefixes: 10.10.99.0/25
+admin_user_name: adminuser
+
+#the following is the NSG rules that will be imported. You can add to them here, or move them back to the create yaml.
+
+nsg_rules_list:
+  - name: "{{ user_first }}HomeIP"
+    protocol: Tcp
+    destination_port_range: 3389
+    access: Allow
+    priority: 110
+    direction: Inbound
+    source_address_prefix: "{{ user_private_ip }}"

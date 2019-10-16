@@ -1,0 +1,143 @@
+---
+# This file is for adding a VM to a subscription that has already had the plumbing created.
+# Use of this script implies a user executing the session, it was not designed around a headless execution workflow.
+- name: Create New VM
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  serial: 1
+
+# Ask the user questions to help mutate the resulting machine details.
+  vars_prompt:
+
+    - name: user_first_in
+      prompt: "What is the users first name?"
+      private: no
+    
+    - name: user_private_ip
+      prompt: "What is the users private IP address?"
+      private: no
+    
+    - name: user_password
+      prompt: "What should the admin user password become?"
+      private: yes
+      confirm: yes
+
+# Include the vars file to answer remainder of consistent items
+  vars_files:
+      - var_holder.yml
+
+  tasks:
+    # Uncomment the below if you want to have the script set the default az client subscription, just in case. Comment out if not.
+    # You can also add client_id, secret, tenant_id, and subscriptin_id to each method or environment variables to use a service principal.
+    - name: Azure CLI Set Active Subscription
+      command: az account set --subscription "{{subscription_id}}"
+    #
+
+
+    - name: Lowercase User name
+      set_fact:
+        user_first: "{{user_first_in|lower}}"
+      when: user_first_in is defined
+
+    - name: Gather facts for custom image
+      azure_rm_image_facts:
+        name: "{{ vm_base_image_name }}"
+        resource_group: "{{ vm_base_image_resource_group }}"
+      register: image_facts
+
+    - name: Gather facts for load balancer
+      azure_rm_loadbalancer_facts:
+        name: "{{ name_prefix }}lb1"
+        resource_group: "{{ resource_group_name }}"
+      register: lb_facts
+
+    - name: Create security group
+      azure_rm_securitygroup:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ name_prefix }}{{ user_first }}nsg"
+        tags:
+          deployed_by: ansible
+          type: user_vm
+          assigned_user: "{{ user_first }}"
+        rules: "{{ nsg_rules_list }}"
+
+    - name: Create a network interface with private IP address only (no Public IP)
+      azure_rm_networkinterface:
+        name: "{{ name_prefix }}{{ user_first }}nic"
+        resource_group: "{{ resource_group_name }}"
+        virtual_network: "{{ name_prefix }}vnet"
+        subnet_name: "{{ name_prefix }}subnet1"
+        create_with_security_group: yes
+        security_group: "{{ name_prefix }}{{ user_first }}nsg"
+        ip_configurations:
+          - name: "{{ name_prefix }}{{ user_first }}ipconfig1"
+            primary: True
+            private_ip_allocation_method: Dynamic
+            load_balancer_backend_address_pools: "{{lb_facts.ansible_facts.azure_loadbalancers.0.properties.backendAddressPools.0.id }}"
+        tags:
+          deployed_by: ansible
+          type: user_vm
+          assigned_user: "{{ user_first }}"
+
+    # Note - Ansible 2.9 will add boot diagnostics support. Plumbing stages an account for it, but will reserve enabling it until 2.9 releases.
+    - name: Create a VM with a custom image
+      azure_rm_virtualmachine:    
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ (name_prefix + user_first)[:15] }}"
+        vm_size: "{{ vm_sku_size }}"
+        admin_username: azureadmin
+        admin_password: "{{ user_password }}"
+        image: "{{image_facts.images.0}}"
+        network_interface_names: "{{ name_prefix }}{{ user_first }}nic"
+        availability_set: "{{ name_prefix }}availset"
+        managed_disk_type: Standard_LRS
+        os_type: Windows
+        tags:
+          deployed_by: ansible
+          type: user_vm
+          assigned_user: "{{ user_first }}"
+      register: vm_facts
+
+    - name: Build and Update LB Inbound nat Rules
+      set_fact:
+        lb_nat_rules: "{{ lb_nat_rules|default([]) + [{'name': item.name, 'backend_port': item.properties.backendPort, 'frontend_ip_configuration': name_prefix + 'frontendipconf1', 'frontend_port': item.properties.frontendPort, 'protocol': item.properties.protocol}] }}"
+      with_items: "{{lb_facts.ansible_facts.azure_loadbalancers.0.properties.inboundNatRules }}"
+
+    - name: Combine with new LB Inbound NAT Rule when second run.
+      set_fact:
+        lb_nat_rules_final: "{{ lb_nat_rules + [{'name': 'nat' + user_first, 'backend_port': 3389, 'frontend_ip_configuration': name_prefix + 'frontendipconf1', 'frontend_port': 50000 + (vm_facts.ansible_facts.azure_vm.properties.networkProfile.networkInterfaces.0.properties.ipConfigurations.0.properties.privateIPAddress.split('.')[-1][-3:] | int ), 'protocol': 'Tcp'}]}}"
+      when: lb_nat_rules is defined
+
+    - name: Combine with new LB Inbound NAT Rule when first run.
+      set_fact:
+        lb_nat_rules_final: "{{ lb_nat_rules_final|default([]) + [{'name': 'nat' + user_first, 'backend_port': 3389, 'frontend_ip_configuration': name_prefix + 'frontendipconf1', 'frontend_port': 50000 + (vm_facts.ansible_facts.azure_vm.properties.networkProfile.networkInterfaces.0.properties.ipConfigurations.0.properties.privateIPAddress.split('.')[-1][-3:] | int ), 'protocol': 'Tcp'}]}}"
+      when: lb_nat_rules is undefined
+
+
+    - name: Update load balancer with NAT rule
+      azure_rm_loadbalancer:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ name_prefix }}lb1"
+        inbound_nat_rules: "{{ lb_nat_rules_final }}"
+
+    # need to fire azure cli in order to link the inbound load balancer rule to the nic.
+    # current modules do not support this method, will evaluate core module enhancement later.
+    - name: Azure CLI Link NIC and Rule - Temp For Inbound NAT Association
+      command: >
+        az network nic ip-config inbound-nat-rule add 
+        -g "{{ resource_group_name }}" 
+        --nic-name "{{ name_prefix }}{{ user_first }}nic" 
+        --ip-config-name "{{ name_prefix }}{{ user_first }}ipconfig1" 
+        --inbound-nat-rule "nat{{ user_first }}" 
+        --lb-name "{{ name_prefix }}lb1" 
+        --subscription "{{subscription_id}}"
+
+ # current modules do not support this method, will evaluate core module enhancement later.
+    - name: Azure CLI Enable Boot Diagnostics - Temp
+      command: >
+        az vm boot-diagnostics enable 
+        --storage "{{ name_prefix + subscription_id[:4]}}diagstorage" 
+        --resource-group "{{ resource_group_name }}" 
+        --name "{{ (name_prefix + user_first)[:15] }}" 
+        --subscription "{{subscription_id}}"

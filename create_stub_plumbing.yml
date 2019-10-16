@@ -1,0 +1,91 @@
+---
+# This file is for creating the underlying infrastructure plumbing within the subscription.
+- name: Create Plumbing
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  serial: 1
+
+# Include the vars file to answer remainder of consistent items
+  vars_files:
+      - var_holder.yml
+
+
+  tasks:
+    # Uncomment the below if you want to have the script set the default az client subscription, just in case. Comment out if not.
+    # You can also add client_id, secret, tenant_id, and subscriptin_id to each method or environment variables to use a service principal.
+    - name: Azure CLI Set Active Subscription
+      command: az account set --subscription "{{subscription_id}}"
+    #
+
+    - name: Create resource group
+      azure_rm_resourcegroup:
+        name: "{{ resource_group_name }}"
+        location: "{{region_location}}"
+        tags:
+          deployed_by: ansible
+          type: plumbing
+    
+    - name: Create availability set for machines
+      azure_rm_availabilityset:
+        name: "{{ name_prefix }}availset"
+        location: "{{region_location}}"
+        resource_group: "{{ resource_group_name }}"
+        platform_update_domain_count: 2
+        platform_fault_domain_count: 2
+        sku: Aligned
+        tags:
+          deployed_by: ansible
+          type: plumbing
+
+    - name: Create boot diagnostics storage account
+      azure_rm_storageaccount:        
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ name_prefix + subscription_id[:4]}}diagstorage"
+        account_type: Standard_LRS
+        tags:
+          deployed_by: ansible
+          type: plumbing
+
+
+    - name: Create virtual network
+      azure_rm_virtualnetwork:        
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ name_prefix }}vnet"
+        address_prefixes: "{{address_prefixes}}"
+        tags:
+          deployed_by: ansible
+          type: plumbing
+
+
+    - name: Add subnet to vnet
+      azure_rm_subnet:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ name_prefix }}subnet1"
+        address_prefix: "{{subnet_address_prefixes}}"
+        virtual_network: "{{ name_prefix }}vnet"
+        
+    - name: Create public ip for load balancer
+      azure_rm_publicipaddress:
+        resource_group: "{{ resource_group_name }}"
+        allocation_method: Static
+        name: "{{ name_prefix }}pubip1"
+        tags:
+          deployed_by: ansible
+          type: plumbing
+        
+
+    - name: Create load balancer
+      azure_rm_loadbalancer:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ name_prefix }}lb1"
+        frontend_ip_configurations:
+          - name: "{{ name_prefix }}frontendipconf1"
+            public_ip_address: "{{ name_prefix }}pubip1"
+        backend_address_pools:
+          - name: "{{ name_prefix }}backendpool1"
+        tags:
+          deployed_by: ansible
+          type: plumbing
+
+

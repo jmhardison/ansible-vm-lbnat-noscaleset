@@ -27,9 +27,13 @@
   vars_files:
       - var_holder.yml
 
+  environment:
+    AZURE_SUBSCRIPTION_ID: "{{subscription_id}}"
+
   tasks:
     # Uncomment the below if you want to have the script set the default az client subscription, just in case. Comment out if not.
-    # You can also add client_id, secret, tenant_id, and subscriptin_id to each method or environment variables to use a service principal.
+    # You can also add client_id, secret, tenant_id, and subscription_id to each method or environment variables to use a service principal.
+    # setting the environment variable, this is probably not needed but will leave for now.
     - name: Azure CLI Set Active Subscription
       command: az account set --subscription "{{subscription_id}}"
     #

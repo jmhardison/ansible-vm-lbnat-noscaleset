@@ -27,8 +27,9 @@
   vars_files:
       - var_holder.yml
 
-  environment:
-    AZURE_SUBSCRIPTION_ID: "{{subscription_id}}"
+# uncomment the following if you have access to multiple subscriptions and see your deployments landing on an unexpected subscription.
+  #environment:
+  #  AZURE_SUBSCRIPTION_ID: "{{subscription_id}}"
 
   tasks:
     # Uncomment the below if you want to have the script set the default az client subscription, just in case. Comment out if not.
@@ -45,13 +46,13 @@
       when: user_first_in is defined
 
     - name: Gather facts for custom image
-      azure_rm_image_facts:
+      azure_rm_image_info:
         name: "{{ vm_base_image_name }}"
         resource_group: "{{ vm_base_image_resource_group }}"
       register: image_facts
 
     - name: Gather facts for load balancer
-      azure_rm_loadbalancer_facts:
+      azure_rm_loadbalancer_info:
         name: "{{ name_prefix }}lb1"
         resource_group: "{{ resource_group_name }}"
       register: lb_facts
@@ -110,12 +111,12 @@
 
     - name: Combine with new LB Inbound NAT Rule when second run.
       set_fact:
-        lb_nat_rules_final: "{{ lb_nat_rules + [{'name': 'nat' + user_first, 'backend_port': 3389, 'frontend_ip_configuration': name_prefix + 'frontendipconf1', 'frontend_port': 50000 + (vm_facts.ansible_info.azure_vm.properties.networkProfile.networkInterfaces.0.properties.ipConfigurations.0.properties.privateIPAddress.split('.')[-1][-3:] | int ), 'protocol': 'Tcp'}]}}"
+        lb_nat_rules_final: "{{ lb_nat_rules + [{'name': 'nat' + user_first, 'backend_port': 3389, 'frontend_ip_configuration': name_prefix + 'frontendipconf1', 'frontend_port': 50000 + (vm_facts.ansible_facts.azure_vm.properties.networkProfile.networkInterfaces.0.properties.ipConfigurations.0.properties.privateIPAddress.split('.')[-1][-3:] | int ), 'protocol': 'Tcp'}]}}"
       when: lb_nat_rules is defined
 
     - name: Combine with new LB Inbound NAT Rule when first run.
       set_fact:
-        lb_nat_rules_final: "{{ lb_nat_rules_final|default([]) + [{'name': 'nat' + user_first, 'backend_port': 3389, 'frontend_ip_configuration': name_prefix + 'frontendipconf1', 'frontend_port': 50000 + (vm_facts.ansible_info.azure_vm.properties.networkProfile.networkInterfaces.0.properties.ipConfigurations.0.properties.privateIPAddress.split('.')[-1][-3:] | int ), 'protocol': 'Tcp'}]}}"
+        lb_nat_rules_final: "{{ lb_nat_rules_final|default([]) + [{'name': 'nat' + user_first, 'backend_port': 3389, 'frontend_ip_configuration': name_prefix + 'frontendipconf1', 'frontend_port': 50000 + (vm_facts.ansible_facts.azure_vm.properties.networkProfile.networkInterfaces.0.properties.ipConfigurations.0.properties.privateIPAddress.split('.')[-1][-3:] | int ), 'protocol': 'Tcp'}]}}"
       when: lb_nat_rules is undefined
 
 

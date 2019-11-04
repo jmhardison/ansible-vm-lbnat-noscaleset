@@ -10,8 +10,9 @@
   vars_files:
       - var_holder.yml
 
-  environment:
-    AZURE_SUBSCRIPTION_ID: "{{subscription_id}}"
+# uncomment the following if you have access to multiple subscriptions and see your deployments landing on an unexpected subscription.
+  #environment:
+  #  AZURE_SUBSCRIPTION_ID: "{{subscription_id}}"
 
   tasks:
     # Uncomment the below if you want to have the script set the default az client subscription, just in case. Comment out if not.
